@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"subsurface-survey-gate/internal/domain"
@@ -68,26 +69,38 @@ func (s *Service) IssueCredential(ctx context.Context, campaignID string, cmd Is
 	return s.commit(ctx, campaignID, cmd.ExpectedVersion, c, []domain.Event{e}, cmd.IdempotencyKey, fp, http.StatusCreated, credential)
 }
 
-func (s *Service) VerifyCredential(ctx context.Context, supplied domain.ReleaseCredential) domain.CredentialVerification {
+func (s *Service) VerifyCredential(ctx context.Context, supplied domain.ReleaseCredential) (domain.CredentialVerification, error) {
 	result := domain.CredentialVerification{CredentialID: supplied.ID, CampaignID: supplied.CampaignID, FrozenVersion: supplied.FrozenVersion}
 	if supplied.ID == "" || supplied.VerificationCode == "" || domain.CredentialCode(supplied) != supplied.VerificationCode {
 		result.Reason = "凭据字段或校验码无效"
-		return result
+		return result, nil
 	}
 	stored, err := s.store.FindCredential(ctx, supplied.ID)
 	if err != nil {
-		result.Reason = "凭据未在本地账本登记"
-		return result
+		var de *domain.Error
+		if errors.As(err, &de) && de.Kind == domain.ErrorNotFound {
+			result.Reason = "凭据未在本地账本登记"
+			return result, nil
+		}
+		return domain.CredentialVerification{}, err
 	}
 	if domain.Digest(stored) != domain.Digest(&supplied) {
 		result.Reason = "凭据与已签发记录不一致"
-		return result
+		return result, nil
 	}
 	campaign, err := s.store.Load(ctx, supplied.CampaignID)
-	if err != nil || campaign.Frozen == nil || campaign.Frozen.FrozenVersion != supplied.FrozenVersion || campaign.Frozen.EventChainRoot != supplied.EventChainRoot || campaign.Frozen.SnapshotDigest != supplied.SnapshotDigest || domain.SnapshotDigest(campaign) != supplied.SnapshotDigest {
+	if err != nil {
+		var de *domain.Error
+		if errors.As(err, &de) && de.Kind == domain.ErrorNotFound {
+			result.Reason = "冻结快照摘要或事件链根不一致"
+			return result, nil
+		}
+		return domain.CredentialVerification{}, err
+	}
+	if campaign.Frozen == nil || campaign.Frozen.FrozenVersion != supplied.FrozenVersion || campaign.Frozen.EventChainRoot != supplied.EventChainRoot || campaign.Frozen.SnapshotDigest != supplied.SnapshotDigest || domain.SnapshotDigest(campaign) != supplied.SnapshotDigest {
 		result.Reason = "冻结快照摘要或事件链根不一致"
-		return result
+		return result, nil
 	}
 	result.Valid, result.Reason = true, "凭据有效"
-	return result
+	return result, nil
 }

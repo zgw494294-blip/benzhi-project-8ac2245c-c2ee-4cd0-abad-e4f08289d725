@@ -40,7 +40,11 @@ func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error(), w.Header().Get("X-Request-ID"))
 		return
 	}
-	verification := s.service.VerifyCredential(r.Context(), cmd.Credential)
+	verification, err := s.service.VerifyCredential(r.Context(), cmd.Credential)
+	if err != nil {
+		handleError(w, r, err)
+		return
+	}
 	status := http.StatusOK
 	if !verification.Valid {
 		status = http.StatusUnprocessableEntity
