@@ -101,9 +101,7 @@ func (s *Store) Commit(ctx context.Context, campaignID string, expected int64, n
 	if err != nil {
 		return nil, nil, fmt.Errorf("写入事件账本: %w", err)
 	}
-	if err := s.writeSnapshot(campaignID, seq, root, next); err != nil {
-		return nil, nil, err
-	}
+	snapshotErr := s.writeSnapshot(campaignID, seq, root, next)
 	s.mu.Lock()
 	s.campaigns[campaignID] = domain.Clone(next)
 	s.roots[campaignID] = root
@@ -111,6 +109,9 @@ func (s *Store) Commit(ctx context.Context, campaignID string, expected int64, n
 	s.idempotency[idemKey] = idem
 	s.audit[campaignID] = append(s.audit[campaignID], auditRecords...)
 	s.mu.Unlock()
+	if snapshotErr != nil {
+		return nil, nil, snapshotErr
+	}
 	return domain.Clone(next), nil, nil
 }
 
