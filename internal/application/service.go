@@ -4,19 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"subsurface-survey-gate/internal/domain"
+	"subsurface-survey-gate/internal/quality"
 )
 
 type Service struct {
 	store   Store
 	scanner QualityScanner
 	now     func() time.Time
+	scanMu  sync.RWMutex
+	scans   map[int64]quality.Result
 }
 
 func NewService(store Store, scanner QualityScanner) *Service {
-	return &Service{store: store, scanner: scanner, now: time.Now}
+	return &Service{store: store, scanner: scanner, now: time.Now, scans: make(map[int64]quality.Result)}
 }
 
 func fingerprint(v any) string { return domain.Digest(v) }

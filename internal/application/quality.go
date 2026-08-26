@@ -29,7 +29,7 @@ func (s *Service) RunScan(ctx context.Context, campaignID string, cmd RunScan) (
 	}
 	now := s.now().UTC()
 	previousState := c.State
-	result := s.scanner.Scan(c)
+	result := s.scanResult(c)
 	scanID := "scan_" + domain.Digest(fmt.Sprintf("%s|%d|%s", c.ID, c.Version, result.InputDigest))[:24]
 	issues := make([]domain.QualityIssue, 0, len(result.Findings))
 	snapshotFindings := make([]domain.ScanFinding, 0, len(result.Findings))
@@ -46,6 +46,23 @@ func (s *Service) RunScan(ctx context.Context, campaignID string, cmd RunScan) (
 	c.ApplyScan(scan, issues, now)
 	e := domain.NewStateEvent(c, newID("evt"), "quality.scanned", cmd.Actor, now, previousState, map[string]any{"scan": scan, "findings": issues})
 	return s.commit(ctx, campaignID, cmd.ExpectedVersion, c, []domain.Event{e}, cmd.IdempotencyKey, fp, http.StatusOK, c)
+}
+
+func (s *Service) scanResult(c *domain.SurveyCampaign) quality.Result {
+	s.scanMu.RLock()
+	cached, ok := s.scans[c.Version]
+	s.scanMu.RUnlock()
+	if ok {
+		cached.Findings = append([]quality.Finding(nil), cached.Findings...)
+		return cached
+	}
+	result := s.scanner.Scan(c)
+	stored := result
+	stored.Findings = append([]quality.Finding(nil), result.Findings...)
+	s.scanMu.Lock()
+	s.scans[c.Version] = stored
+	s.scanMu.Unlock()
+	return result
 }
 
 func (s *Service) CompareScans(ctx context.Context, campaignID, baseScanID, targetScanID string) (domain.ScanDifferenceReport, error) {
