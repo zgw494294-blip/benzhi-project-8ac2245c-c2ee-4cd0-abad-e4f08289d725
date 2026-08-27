@@ -1,3 +1,3 @@
-module cleanroom-release-go
+module subsurface-survey-gate
 
 go 1.22

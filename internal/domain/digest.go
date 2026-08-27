@@ -6,49 +6,38 @@ import (
 	"encoding/json"
 )
 
-type planCanonical struct {
-	CampaignID    string           `json:"campaignId"`
-	FacilityName  string           `json:"facilityName"`
-	Reviewer      string           `json:"reviewer"`
-	PlannedRounds int              `json:"plannedRounds"`
-	Sites         []ControlledSite `json:"sites"`
-}
-
-func (c *MonitoringCampaign) ComputePlanDigest() (string, error) {
-	value := planCanonical{CampaignID: c.ID, FacilityName: c.FacilityName, Reviewer: c.PlanReviewer, PlannedRounds: c.PlannedRounds, Sites: c.Sites}
-	return digestJSON(value)
-}
-
-type frozenCanonical struct {
-	ID                string                   `json:"id"`
-	FacilityName      string                   `json:"facilityName"`
-	Version           int64                    `json:"version"`
-	PlanDigest        string                   `json:"planDigest"`
-	FrozenAt          any                      `json:"frozenAt"`
-	VerificationRound int                      `json:"verificationRound"`
-	Sites             []ControlledSite         `json:"sites"`
-	Observations      []SampleObservation      `json:"observations"`
-	Investigations    []DeviationInvestigation `json:"investigations"`
-	Actions           []CorrectiveAction       `json:"actions"`
-	Reviews           []QualityReview          `json:"reviews"`
-	AuditTrail        []AuditEntry             `json:"auditTrail"`
-}
-
-func (c *MonitoringCampaign) ComputeFrozenDigest() (string, error) {
-	value := frozenCanonical{
-		ID: c.ID, FacilityName: c.FacilityName, Version: c.Version, PlanDigest: c.PlanDigest,
-		FrozenAt: c.FrozenAt, VerificationRound: c.VerificationRound, Sites: c.Sites,
-		Observations: c.Observations, Investigations: c.Investigations, Actions: c.Actions,
-		Reviews: c.Reviews, AuditTrail: c.AuditTrail,
-	}
-	return digestJSON(value)
-}
-
-func digestJSON(value any) (string, error) {
-	b, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
+func Digest(v any) string {
+	b, _ := json.Marshal(v)
 	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
+}
+
+// SnapshotDigest 只覆盖批准时的业务事实，排除随后产生的冻结、凭据和传输状态字段。
+func SnapshotDigest(c *SurveyCampaign) string {
+	return Digest(struct {
+		ID                    string                `json:"id"`
+		Name                  string                `json:"name"`
+		SurveyArea            string                `json:"surveyArea"`
+		CoordinateReference   string                `json:"coordinateReference"`
+		SpecificationRevision string                `json:"specificationRevision"`
+		Controls              []ControlPoint        `json:"controls"`
+		ControlChanges        []ControlChange       `json:"controlChanges"`
+		Observations          []PipelineObservation `json:"observations"`
+		Issues                []QualityIssue        `json:"issues"`
+		Scans                 []QualityScan         `json:"scans"`
+		Rectifications        []Rectification       `json:"rectifications"`
+		Reviews               []ReviewDecision      `json:"reviews"`
+	}{c.ID, c.Name, c.SurveyArea, c.CoordinateReference, c.SpecificationRevision, c.Controls, c.ControlChanges, c.Observations, c.Issues, c.Scans, c.Rectifications, c.Reviews})
+}
+
+func CredentialCode(c ReleaseCredential) string {
+	return Digest(struct {
+		ID             string `json:"id"`
+		CampaignID     string `json:"campaignId"`
+		FrozenVersion  int64  `json:"frozenVersion"`
+		SnapshotDigest string `json:"snapshotDigest"`
+		EventChainRoot string `json:"eventChainRoot"`
+		IssuedBy       string `json:"issuedBy"`
+		IssuedAt       string `json:"issuedAt"`
+	}{c.ID, c.CampaignID, c.FrozenVersion, c.SnapshotDigest, c.EventChainRoot, c.IssuedBy, c.IssuedAt.UTC().Format("2006-01-02T15:04:05.000000000Z")})
 }
