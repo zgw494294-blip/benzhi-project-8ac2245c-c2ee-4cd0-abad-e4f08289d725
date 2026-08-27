@@ -1,55 +1,48 @@
-# cleanroom-release-go
+# subsurface-survey-gate
 
-`cleanroom-release-go` 是面向洁净室环境管理团队的偏差调查与复产放行服务。它把受控点位建档、采样方案锁定、监测结果判定、超限调查、纠正措施、验证复采、质量审核、冻结快照和放行凭据串成一条可审计状态流程。
+`subsurface-survey-gate` 是面向市政测绘团队的地下管线探测成果质量准入服务。它把探测批次、控制基准预检、管段观测及原子批量登记、确定性质量扫描、问题工作清单、整改复扫差异、人工复核、审计时间线、冻结快照和准入凭据纳入一条可追溯流程，避免不完整或相互矛盾的成果进入建档环节。
 
-服务只使用本地文件，不依赖外部数据库或第三方系统。写命令必须提交 `idempotencyKey`、`expectedVersion` 和 `actor`；同一幂等键用于不同请求会被拒绝，陈旧版本会返回冲突。冻结后的业务数据不可修改。
+服务提供版本化 JSON HTTP API，不依赖外部系统。每个改变状态的请求都必须携带 `expectedVersion` 和 `idempotencyKey`：前者拒绝陈旧写入，后者配合请求指纹安全返回已有响应或拒绝键冲突。批次状态依次为 `draft`、`baseline_locked`、`quality_blocked`/`ready_for_review`、`under_review`、`returned`/`approved`、`frozen`、`issued`。控制点锁定后的坐标变更只能走显式 `PATCH` 接口，形成新 `version` 和带前后值的事件；冻结后禁止修改业务资料。
 
 ## 构建、运行与测试
 
 ```text
-go build ./cmd/cleanzone
-go run ./cmd/cleanzone -addr=127.0.0.1:19081 -data=./data/ledger
+go build ./cmd/surveygate
+go run ./cmd/surveygate -addr=127.0.0.1:19081 -data=./data
 go test ./...
 ```
 
-默认监听 `127.0.0.1:19081`，可通过 `-addr=127.0.0.1:<port>` 配置完整地址。如果没有显式传入 `-addr`，也可通过 `PORT` 提供端口号，此时固定绑定到 `127.0.0.1:<PORT>`。服务拒绝 `0.0.0.0`、`::` 和省略主机的监听地址。
+默认监听 `127.0.0.1:19081`。可用 `-addr=127.0.0.1:<port>` 指定回环地址；未提供 `-addr` 时，也可把 `PORT` 设置为端口号，服务会绑定 `127.0.0.1:<PORT>`。为避免意外暴露，入口拒绝非回环地址。
 
-`-data` 指定本地数据目录，默认为 `./data/ledger`。目录中包含带校验链的 `events.jsonl` 和可原子替换的 `projection.json`。投影缺失或损坏时会从事件账本重建；事件序号、前序摘要或校验和异常时服务拒绝启动。
-
-运行完整 HTTP 冒烟流程并自动退出：
+运行会自动结束的真实 HTTP 自检：
 
 ```text
-go run ./cmd/cleanzone -selfcheck -addr=127.0.0.1:19081
+go run ./cmd/surveygate -selfcheck -addr=127.0.0.1:19081
 ```
 
-selfcheck 会启动真实监听服务，依次模拟计划采样超限、调查草稿分次维护、批量纠正、首次验证再次超限并退回、第二次验证合格、审核退回后通过、冻结签发和公开核验；最后读取周期台账、采样矩阵、措施清单、预检与验证对比，完成后优雅关闭。
+自检使用临时数据目录，启动真实回环监听，通过公开 API 完成创建批次、登记并锁定两个控制点、登记管段、扫描、提交复核、批准、冻结、签发与核验，然后优雅停机。
+
+## 数据目录
+
+`-data` 默认指向 `./data`。`events.jsonl` 是追加式事件账本，每条记录包含单调序号、前序摘要、当前摘要、领域事件、幂等响应和可恢复投影。`snapshots/<campaignId>.json` 使用同目录临时文件、`fsync` 与原子替换生成，并包含 `schemaVersion`、链根和状态摘要。启动时会逐行校验事件摘要链并恢复批次；链条损坏时拒绝启动。
 
 ## API 概览
 
-所有业务 API 使用 JSON，版本前缀为 `/api/v1`。
+- `GET /healthz`：健康检查。
+- `POST /api/v1/campaigns`、`GET /api/v1/campaigns/{campaignID}`：创建和查询批次。
+- `POST /api/v1/campaigns/{campaignID}/controls`：登记控制点。
+- `PATCH /api/v1/campaigns/{campaignID}/controls/{controlID}`：显式修订控制点并保留前后值。
+- `GET /api/v1/campaigns/{campaignID}/baseline/readiness`：只读检查草稿基准的控制点数量、核验信息、闭合风险、坐标范围、最小点间距和稳定摘要。
+- `POST /api/v1/campaigns/{campaignID}/baseline/lock`：锁定至少两个控制点组成的基准。
+- `POST /api/v1/campaigns/{campaignID}/observations`：登记管段观测。
+- `POST /api/v1/campaigns/{campaignID}/observations/batch`：原子登记一至一百条管段观测，整批只迁移一次版本。
+- `POST /api/v1/campaigns/{campaignID}/scans`：运行稳定排序的确定性规则集。
+- `GET /api/v1/campaigns/{campaignID}/issues`：组合筛选、稳定分页质量问题并返回全批次汇总。
+- `GET /api/v1/campaigns/{campaignID}/scans/compare?baseScanId=...&targetScanId=...`：比较两次持久化扫描快照，返回已解决、仍存在、新增规则结果及整改证据。
+- `POST /api/v1/campaigns/{campaignID}/rectifications`：提交整改说明及可选观测修订；问题只能由复扫关闭。
+- `GET /api/v1/campaigns/{campaignID}/audit-events`：按账本顺序查询状态变更依据、操作者、摘要链和分页游标。
+- `POST /api/v1/campaigns/{campaignID}/review/submit`、`POST /api/v1/campaigns/{campaignID}/review/decision`：提交复核、退回或批准。
+- `POST /api/v1/campaigns/{campaignID}/freeze`：冻结已批准且无未解决阻断问题的快照。
+- `POST /api/v1/campaigns/{campaignID}/credential`、`POST /api/v1/credentials/verify`：签发和核验准入凭据。
 
-- `POST /api/v1/campaigns`：创建周期并登记受控监测点。
-- `GET /api/v1/campaigns`：按 `facilityName`、`status`、`createdFrom`、`createdTo` 组合筛选，并使用 `pageSize`、`cursor` 稳定分页。
-- `GET /api/v1/campaigns/statistics`：按相同条件汇总状态数量和调查、纠正、验证、审核待办。
-- `POST /api/v1/campaigns/{campaignID}/plan/lock`：锁定方案及摘要。
-- `POST /api/v1/campaigns/{campaignID}/observations/planned`：记录计划采样并自动判定。
-- `GET /api/v1/campaigns/{campaignID}/sampling/progress`：查询轮次乘点位覆盖矩阵、完成比例和超限工作清单；可按 `round`、`area`、`metric` 筛选。
-- `PATCH /api/v1/campaigns/{campaignID}/investigations/{investigationID}/draft`：部分更新影响范围、原因假设和证据引用。
-- `GET /api/v1/campaigns/{campaignID}/investigations/{investigationID}/preflight`：只读检查调查闭合材料。
-- `POST /api/v1/campaigns/{campaignID}/investigations/{investigationID}/conclude`：补齐证据并确认根因。
-- `POST /api/v1/campaigns/{campaignID}/corrective-actions`：登记纠正措施。
-- `POST /api/v1/campaigns/{campaignID}/corrective-actions/{actionID}/complete`：提交完成证据。
-- `POST /api/v1/campaigns/{campaignID}/corrective-actions/batch`：原子批量登记纠正措施，单批最多 100 项。
-- `POST /api/v1/campaigns/{campaignID}/corrective-actions/batch-complete`：原子批量提交措施完成证据，单批最多 100 项。
-- `GET /api/v1/campaigns/{campaignID}/corrective-actions`：按 `investigationId`、`owner`、`status`/`completed` 和 `overdue` 查询措施及汇总。
-- `POST /api/v1/campaigns/{campaignID}/verifications`：开始下一次验证轮次。
-- `GET /api/v1/campaigns/{campaignID}/verifications/preflight`：结构化返回验证开轮阻断项。
-- `GET /api/v1/campaigns/{campaignID}/verifications/comparison`：按 `fromRound`、`toRound` 查询原点位跨轮结果与轮次结论。
-- `POST /api/v1/campaigns/{campaignID}/observations/verification`：记录验证结果；再次超限会自动建立新调查并回退。
-- `POST /api/v1/campaigns/{campaignID}/reviews`：作出 `reject` 或 `approve` 决定；通过时冻结快照。
-- `POST /api/v1/campaigns/{campaignID}/credentials`：为冻结周期签发凭据。
-- `GET /api/v1/public/credentials/{credentialID}/verify`：公开核验签名与冻结摘要。
-- `GET /api/v1/campaigns/{campaignID}` 与 `GET /api/v1/campaigns/{campaignID}/audit`：查询状态和审核轨迹。
-- `GET /healthz`：进程健康检查。
-
-错误响应统一包含 `error.code` 和 `error.message`。校验错误返回 `400`，资源不存在返回 `404`，版本、幂等、非法状态及冻结冲突返回 `409`。
+请求解码拒绝未知字段并限制为 1 MiB；响应统一使用 JSON。错误信封包含 `errorCode`、`message`、`requestId` 和可选 `field`。

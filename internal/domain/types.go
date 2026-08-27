@@ -2,136 +2,108 @@ package domain
 
 import "time"
 
-type CampaignStatus string
+type CampaignState string
 
 const (
-	StatusDraft              CampaignStatus = "draft"
-	StatusPlanLocked         CampaignStatus = "plan_locked"
-	StatusSampling           CampaignStatus = "sampling"
-	StatusInvestigation      CampaignStatus = "investigation"
-	StatusCorrection         CampaignStatus = "correction"
-	StatusVerification       CampaignStatus = "verification"
-	StatusVerificationPassed CampaignStatus = "verification_passed"
-	StatusFrozen             CampaignStatus = "frozen"
+	StateDraft          CampaignState = "draft"
+	StateBaselineLocked CampaignState = "baseline_locked"
+	StateQualityBlocked CampaignState = "quality_blocked"
+	StateReadyForReview CampaignState = "ready_for_review"
+	StateUnderReview    CampaignState = "under_review"
+	StateReturned       CampaignState = "returned"
+	StateApproved       CampaignState = "approved"
+	StateFrozen         CampaignState = "frozen"
+	StateIssued         CampaignState = "issued"
 )
 
-type RoundKind string
-
-const (
-	RoundPlanned      RoundKind = "planned"
-	RoundVerification RoundKind = "verification"
-)
-
-type Verdict string
-
-const (
-	VerdictNormal Verdict = "normal"
-	VerdictAlert  Verdict = "alert"
-)
-
-type InvestigationStatus string
-
-const (
-	InvestigationOpen      InvestigationStatus = "open"
-	InvestigationConcluded InvestigationStatus = "concluded"
-)
-
-type MonitoringCampaign struct {
-	ID                string                   `json:"id"`
-	FacilityName      string                   `json:"facilityName"`
-	Status            CampaignStatus           `json:"status"`
-	Version           int64                    `json:"version"`
-	PlanReviewer      string                   `json:"planReviewer,omitempty"`
-	PlannedRounds     int                      `json:"plannedRounds,omitempty"`
-	PlanDigest        string                   `json:"planDigest,omitempty"`
-	CreatedAt         time.Time                `json:"createdAt"`
-	FrozenAt          *time.Time               `json:"frozenAt,omitempty"`
-	FrozenDigest      string                   `json:"frozenDigest,omitempty"`
-	VerificationRound int                      `json:"verificationRound,omitempty"`
-	Sites             []ControlledSite         `json:"sites"`
-	Observations      []SampleObservation      `json:"observations"`
-	Investigations    []DeviationInvestigation `json:"investigations"`
-	Actions           []CorrectiveAction       `json:"actions"`
-	Reviews           []QualityReview          `json:"reviews"`
-	AuditTrail        []AuditEntry             `json:"auditTrail"`
+type SurveyCampaign struct {
+	ID                    string                `json:"id"`
+	Name                  string                `json:"name"`
+	SurveyArea            string                `json:"surveyArea"`
+	CoordinateReference   string                `json:"coordinateReference"`
+	SpecificationRevision string                `json:"specificationRevision"`
+	State                 CampaignState         `json:"state"`
+	Version               int64                 `json:"version"`
+	CreatedAt             time.Time             `json:"createdAt"`
+	UpdatedAt             time.Time             `json:"updatedAt"`
+	Controls              []ControlPoint        `json:"controls"`
+	ControlChanges        []ControlChange       `json:"controlChanges"`
+	Observations          []PipelineObservation `json:"observations"`
+	Issues                []QualityIssue        `json:"issues"`
+	Scans                 []QualityScan         `json:"scans"`
+	Rectifications        []Rectification       `json:"rectifications"`
+	Reviews               []ReviewDecision      `json:"reviews"`
+	Frozen                *FrozenSnapshot       `json:"frozen,omitempty"`
+	Credential            *ReleaseCredential    `json:"credential,omitempty"`
 }
 
-type ControlledSite struct {
-	ID               string  `json:"id"`
-	CampaignID       string  `json:"campaignId"`
-	AreaName         string  `json:"areaName"`
-	PointCode        string  `json:"pointCode"`
-	CleanlinessGrade string  `json:"cleanlinessGrade"`
-	Metric           string  `json:"metric"`
-	Unit             string  `json:"unit"`
-	AlertLimit       float64 `json:"alertLimit"`
+type ControlPoint struct {
+	ID         string    `json:"id"`
+	CampaignID string    `json:"campaignId"`
+	Code       string    `json:"code"`
+	Easting    float64   `json:"easting"`
+	Northing   float64   `json:"northing"`
+	Elevation  float64   `json:"elevation"`
+	Source     string    `json:"source"`
+	VerifiedBy string    `json:"verifiedBy"`
+	VerifiedAt time.Time `json:"verifiedAt"`
 }
 
-type SampleObservation struct {
-	ID            string    `json:"id"`
-	CampaignID    string    `json:"campaignId"`
-	SiteID        string    `json:"siteId"`
-	RoundNumber   int       `json:"roundNumber"`
-	RoundKind     RoundKind `json:"roundKind"`
-	ObservedValue float64   `json:"observedValue"`
-	Unit          string    `json:"unit"`
-	Verdict       Verdict   `json:"verdict"`
-	Explanation   string    `json:"explanation"`
-	ObservedAt    time.Time `json:"observedAt"`
-}
-
-type DeviationInvestigation struct {
-	ID            string              `json:"id"`
-	CampaignID    string              `json:"campaignId"`
-	ObservationID string              `json:"observationId"`
-	ImpactScope   string              `json:"impactScope"`
-	Hypotheses    []string            `json:"hypotheses"`
-	EvidenceRefs  []string            `json:"evidenceRefs"`
-	RootCause     string              `json:"rootCause,omitempty"`
-	Status        InvestigationStatus `json:"status"`
-	OpenedAt      time.Time           `json:"openedAt"`
-	ConcludedAt   *time.Time          `json:"concludedAt,omitempty"`
-}
-
-type CorrectiveAction struct {
-	ID                 string     `json:"id"`
-	InvestigationID    string     `json:"investigationId"`
-	Description        string     `json:"description"`
-	Owner              string     `json:"owner"`
-	DueAt              time.Time  `json:"dueAt"`
-	CompletionEvidence string     `json:"completionEvidence,omitempty"`
-	CompletedAt        *time.Time `json:"completedAt,omitempty"`
-}
-
-type QualityReview struct {
-	ID        string    `json:"id"`
-	Reviewer  string    `json:"reviewer"`
-	Decision  string    `json:"decision"`
-	Comment   string    `json:"comment"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-type AuditEntry struct {
-	Sequence  int64     `json:"sequence"`
-	Action    string    `json:"action"`
-	Actor     string    `json:"actor"`
-	Detail    string    `json:"detail"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-type ReleaseCredential struct {
+type PipelineObservation struct {
 	ID              string    `json:"id"`
 	CampaignID      string    `json:"campaignId"`
-	CampaignVersion int64     `json:"campaignVersion"`
-	SnapshotDigest  string    `json:"snapshotDigest"`
-	IssuedBy        string    `json:"issuedBy"`
-	IssuedAt        time.Time `json:"issuedAt"`
-	Signature       string    `json:"signature"`
+	SegmentCode     string    `json:"segmentCode"`
+	UtilityType     string    `json:"utilityType"`
+	StartPointID    string    `json:"startPointId"`
+	EndPointID      string    `json:"endPointId"`
+	BurialDepthMM   int       `json:"burialDepthMm"`
+	DiameterMM      int       `json:"diameterMm"`
+	Material        string    `json:"material"`
+	DetectionMethod string    `json:"detectionMethod"`
+	ObservedAt      time.Time `json:"observedAt"`
+	Revision        int       `json:"revision"`
 }
 
-type CredentialVerification struct {
-	CredentialID string `json:"credentialId"`
-	CampaignID   string `json:"campaignId"`
-	Valid        bool   `json:"valid"`
-	Reason       string `json:"reason"`
+type IssueSeverity string
+type IssueStatus string
+
+const (
+	SeverityWarning IssueSeverity = "warning"
+	SeverityBlocker IssueSeverity = "blocker"
+	IssueOpen       IssueStatus   = "open"
+	IssueResolved   IssueStatus   = "resolved"
+)
+
+type QualityIssue struct {
+	ID             string        `json:"id"`
+	CampaignID     string        `json:"campaignId"`
+	ScanID         string        `json:"scanId"`
+	RuleCode       string        `json:"ruleCode"`
+	Severity       IssueSeverity `json:"severity"`
+	ObjectRef      string        `json:"objectRef"`
+	Description    string        `json:"description"`
+	Status         IssueStatus   `json:"status"`
+	ResolutionNote string        `json:"resolutionNote,omitempty"`
+	DetectedAt     time.Time     `json:"detectedAt"`
+	ResolvedAt     *time.Time    `json:"resolvedAt,omitempty"`
+}
+
+type QualityScan struct {
+	ID             string        `json:"id"`
+	CampaignID     string        `json:"campaignId"`
+	RuleSetVersion string        `json:"ruleSetVersion"`
+	InputDigest    string        `json:"inputDigest"`
+	IssueCount     int           `json:"issueCount"`
+	BlockerCount   int           `json:"blockerCount"`
+	ScannedAt      time.Time     `json:"scannedAt"`
+	Findings       []ScanFinding `json:"findings"`
+}
+
+// ScanFinding 是扫描发生时写入聚合的不可变规则事实，历史扫描不会被复扫覆盖。
+type ScanFinding struct {
+	Key         string        `json:"key"`
+	RuleCode    string        `json:"ruleCode"`
+	Severity    IssueSeverity `json:"severity"`
+	ObjectRef   string        `json:"objectRef"`
+	Description string        `json:"description"`
 }

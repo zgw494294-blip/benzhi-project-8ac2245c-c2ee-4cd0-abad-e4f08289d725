@@ -2,14 +2,12 @@ package domain
 
 import "encoding/json"
 
-func CloneCampaign(c *MonitoringCampaign) (*MonitoringCampaign, error) {
-	b, err := json.Marshal(c)
-	if err != nil {
-		return nil, err
+func Clone(c *SurveyCampaign) *SurveyCampaign {
+	if c == nil {
+		return nil
 	}
-	var clone MonitoringCampaign
-	if err := json.Unmarshal(b, &clone); err != nil {
-		return nil, err
-	}
-	return &clone, nil
+	b, _ := json.Marshal(c)
+	var out SurveyCampaign
+	_ = json.Unmarshal(b, &out)
+	return &out
 }

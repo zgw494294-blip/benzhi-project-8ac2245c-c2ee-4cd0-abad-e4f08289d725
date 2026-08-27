@@ -2,67 +2,39 @@ package httpapi
 
 import (
 	"bytes"
-	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"cleanroom-release-go/internal/ledger"
-	"cleanroom-release-go/internal/workflow"
+	"subsurface-survey-gate/internal/application"
+	"subsurface-survey-gate/internal/eventstore"
+	"subsurface-survey-gate/internal/quality"
 )
 
-func testServer(t *testing.T) *httptest.Server {
-	store, err := ledger.Open(t.TempDir())
+func TestStrictJSONAndIdempotentCreate(t *testing.T) {
+	store, err := eventstore.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return httptest.NewServer(New(workflow.New(store, "secret"), nil).Handler())
-}
-
-func TestHealthAndValidationErrorShape(t *testing.T) {
-	server := testServer(t)
-	defer server.Close()
-	resp, err := http.Get(server.URL + "/healthz")
-	if err != nil {
-		t.Fatal(err)
+	handler := New(application.NewService(store, quality.NewScanner()), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	bad := httptest.NewRequest(http.MethodPost, "/api/v1/campaigns", strings.NewReader(`{"expectedVersion":0,"idempotencyKey":"k","name":"n","surveyArea":"a","coordinateReference":"c","specificationRevision":"r","unknown":1}`))
+	badRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(badRecorder, bad)
+	if badRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("未知字段状态码=%d", badRecorder.Code)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatal(resp.Status)
+	body := []byte(`{"expectedVersion":0,"idempotencyKey":"same","name":"n","surveyArea":"a","coordinateReference":"c","specificationRevision":"r","actor":"x"}`)
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/api/v1/campaigns", bytes.NewReader(body)))
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/api/v1/campaigns", bytes.NewReader(body)))
+	if first.Code != http.StatusCreated || second.Code != http.StatusCreated || second.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("幂等创建失败: %d/%d", first.Code, second.Code)
 	}
-	body := []byte(`{"id":"c1","facilityName":"厂房","sites":[]}`)
-	resp, err = http.Post(server.URL+"/api/v1/campaigns", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("状态=%d", resp.StatusCode)
-	}
-	var result struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatal(err)
-	}
-	if result.Error.Code == "" || result.Error.Message == "" {
-		t.Fatalf("错误响应不可机器读取: %+v", result)
-	}
-}
-
-func TestUnknownJSONFieldRejected(t *testing.T) {
-	server := testServer(t)
-	defer server.Close()
-	body := []byte(`{"id":"c1","facilityName":"厂房","unexpected":true,"sites":[]}`)
-	resp, err := http.Post(server.URL+"/api/v1/campaigns", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("未知字段应返回 400，实际 %d", resp.StatusCode)
+	if first.Body.String() != second.Body.String() {
+		t.Fatal("幂等响应内容不一致")
 	}
 }

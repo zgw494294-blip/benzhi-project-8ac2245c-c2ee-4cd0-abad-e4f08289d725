@@ -1,17 +1,17 @@
 # BENZHI_README
 
-基于 Go 实现的cleanroom-release-go HTTP API 项目，一款后端服务，已完整实现洁净室环境监测偏差调查、纠正验证、质量冻结与复产放行凭据核验服务。
+基于 Go 实现的subsurface-survey-gate HTTP API 项目，一款后端服务，已完整实现市政地下管线探测成果质量准入服务。
 
 ## 项目说明
 - 项目：benzhi-project-8ac2245c-c2ee-4cd0-abad-e4f08289d725
-- 项目用途：已完整实现洁净室环境监测偏差调查、纠正验证、质量冻结与复产放行凭据核验服务。
+- 项目用途：已完整实现市政地下管线探测成果质量准入服务。
 - Go 工具链：`golang:1.22`
 - 前端工具链：无
 
 ## 标准构建、运行和测试命令
 进入容器后执行：
 cd '/app' && GOTOOLCHAIN=local go build ./...
-cd /app && GOTOOLCHAIN=local go run ./cmd/cleanzone -selfcheck -addr=127.0.0.1:19081
+cd /app && GOTOOLCHAIN=local go run ./cmd/surveygate -selfcheck -addr=127.0.0.1:19081
 cd '/app' && GOTOOLCHAIN=local go test ./...
 
 ## Docker 构建和进入容器
@@ -22,4 +22,4 @@ docker run -it benzhi-project-8ac2245c-c2ee-4cd0-abad-e4f08289d725-amd64:latest
 
 ## 题目验证命令
 1. 预期退出码 0：`go test ./...`
-2. 预期退出码 0：`go run ./cmd/cleanzone -selfcheck -addr=127.0.0.1:19081`
+2. 预期退出码 0：`go run ./cmd/surveygate -selfcheck -addr=127.0.0.1:19081`

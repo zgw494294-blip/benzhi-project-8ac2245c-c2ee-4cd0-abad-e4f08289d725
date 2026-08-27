@@ -3,55 +3,51 @@ package httpapi
 import (
 	"net/http"
 
-	"cleanroom-release-go/internal/workflow"
+	"subsurface-survey-gate/internal/application"
 )
 
-func (s *Server) ReviewCampaign(w http.ResponseWriter, r *http.Request) {
-	id, err := requiredPath(r, "campaignID")
+func (s *Server) FreezeCampaign(w http.ResponseWriter, r *http.Request) {
+	var cmd application.FreezeCampaign
+	if err := decode(w, r, &cmd); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error(), w.Header().Get("X-Request-ID"))
+		return
+	}
+	result, err := s.service.Freeze(r.Context(), r.PathValue("campaignID"), cmd)
 	if err != nil {
-		writeError(w, err)
+		handleError(w, r, err)
 		return
 	}
-	var cmd workflow.ReviewCommand
-	if !decode(w, r, &cmd) {
-		return
-	}
-	c, err := s.workflow.Review(r.Context(), id, cmd)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, campaignResponse(c))
+	writeResult(w, result)
 }
 
 func (s *Server) IssueCredential(w http.ResponseWriter, r *http.Request) {
-	id, err := requiredPath(r, "campaignID")
+	var cmd application.IssueCredential
+	if err := decode(w, r, &cmd); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error(), w.Header().Get("X-Request-ID"))
+		return
+	}
+	result, err := s.service.IssueCredential(r.Context(), r.PathValue("campaignID"), cmd)
 	if err != nil {
-		writeError(w, err)
+		handleError(w, r, err)
 		return
 	}
-	var cmd workflow.IssueCredentialCommand
-	if !decode(w, r, &cmd) {
-		return
-	}
-	credential, err := s.workflow.IssueCredential(r.Context(), id, cmd)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"credential": credential})
+	writeResult(w, result)
 }
 
 func (s *Server) VerifyCredential(w http.ResponseWriter, r *http.Request) {
-	id, err := requiredPath(r, "credentialID")
-	if err != nil {
-		writeError(w, err)
+	var cmd application.VerifyCredential
+	if err := decode(w, r, &cmd); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error(), w.Header().Get("X-Request-ID"))
 		return
 	}
-	result, err := s.workflow.VerifyCredential(r.Context(), id)
+	verification, err := s.service.VerifyCredential(r.Context(), cmd.Credential)
 	if err != nil {
-		writeError(w, err)
+		handleError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"verification": result})
+	status := http.StatusOK
+	if !verification.Valid {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, verification)
 }

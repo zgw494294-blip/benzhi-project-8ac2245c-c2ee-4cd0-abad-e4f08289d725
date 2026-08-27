@@ -5,41 +5,42 @@ import "fmt"
 type ErrorKind string
 
 const (
-	KindValidation ErrorKind = "validation"
-	KindNotFound   ErrorKind = "not_found"
-	KindConflict   ErrorKind = "conflict"
-	KindState      ErrorKind = "invalid_state"
-	KindFrozen     ErrorKind = "frozen"
+	ErrorValidation  ErrorKind = "validation_error"
+	ErrorConflict    ErrorKind = "state_conflict"
+	ErrorVersion     ErrorKind = "version_conflict"
+	ErrorNotFound    ErrorKind = "not_found"
+	ErrorIdempotency ErrorKind = "idempotency_conflict"
+	ErrorQuery       ErrorKind = "invalid_query"
+	ErrorIntegrity   ErrorKind = "data_integrity_error"
 )
 
 type Error struct {
 	Kind    ErrorKind
-	Code    string
+	Field   string
 	Message string
 }
 
-func (e *Error) Error() string { return e.Message }
-
-func NewError(kind ErrorKind, code, format string, args ...any) error {
-	return &Error{Kind: kind, Code: code, Message: fmt.Sprintf(format, args...)}
+func (e *Error) Error() string {
+	if e.Field == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s: %s", e.Field, e.Message)
 }
 
-func Validation(code, format string, args ...any) error {
-	return NewError(KindValidation, code, format, args...)
+func Validation(field, message string) error {
+	return &Error{Kind: ErrorValidation, Field: field, Message: message}
 }
-
-func InvalidState(format string, args ...any) error {
-	return NewError(KindState, "invalid_state", format, args...)
+func Conflict(message string) error { return &Error{Kind: ErrorConflict, Message: message} }
+func VersionConflict() error {
+	return &Error{Kind: ErrorVersion, Message: "expectedVersion 与当前版本不一致"}
 }
-
-func Conflict(code, format string, args ...any) error {
-	return NewError(KindConflict, code, format, args...)
+func NotFound(entity string) error { return &Error{Kind: ErrorNotFound, Message: entity + "不存在"} }
+func IdempotencyConflict() error {
+	return &Error{Kind: ErrorIdempotency, Message: "idempotencyKey 已用于不同请求"}
 }
-
-func NotFound(resource, id string) error {
-	return NewError(KindNotFound, "not_found", "%s %s 不存在", resource, id)
+func QueryError(field, message string) error {
+	return &Error{Kind: ErrorQuery, Field: field, Message: message}
 }
-
-func Frozen() error {
-	return NewError(KindFrozen, "campaign_frozen", "监测周期已冻结，业务数据不可修改")
+func IntegrityError(message string) error {
+	return &Error{Kind: ErrorIntegrity, Message: message}
 }
